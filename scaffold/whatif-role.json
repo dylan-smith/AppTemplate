@@ -1,0 +1,11 @@
+{
+  "Name": "__ROLE_NAME__",
+  "Description": "Read resources and run deployment what-if for pull requests. It can't write any resource.",
+  "Actions": [
+    "*/read",
+    "Microsoft.Resources/deployments/validate/action",
+    "Microsoft.Resources/deployments/whatIf/action",
+    "Microsoft.Resources/deployments/write"
+  ],
+  "AssignableScopes": ["__SCOPE__"]
+}

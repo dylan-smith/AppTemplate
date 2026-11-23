@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/AppTemplate.Api.Tests/AppTemplate.Api.Tests.csproj" />
+    <Project Path="backend/AppTemplate.Api/AppTemplate.Api.csproj" />
+    <Project Path="backend/AppTemplate.Database/AppTemplate.Database.csproj" />
+  </Folder>
+</Solution>
