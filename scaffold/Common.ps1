@@ -72,8 +72,14 @@ function Assert-Tools([string[]]$Tools) {
     }
 }
 
+# .NET file calls resolve a relative path against the process's folder, not PowerShell's current location.
+function Resolve-File([string]$File) {
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($File)
+}
+
 # Replaces literal text in a file, and fails when the text isn't there so a template change can't go unnoticed.
 function Edit-File([string]$File, [string]$Find, [string]$Replace, [switch]$Optional) {
+    $File = Resolve-File $File
     $text = [System.IO.File]::ReadAllText($File)
     if (-not $text.Contains($Find)) {
         if ($Optional) { return }
@@ -84,6 +90,7 @@ function Edit-File([string]$File, [string]$Find, [string]$Replace, [switch]$Opti
 
 # Sets the value of a "param name = '...'" line in a .bicepparam file.
 function Set-BicepParam([string]$File, [string]$Name, [string]$Value) {
+    $File = Resolve-File $File
     $text = [System.IO.File]::ReadAllText($File)
     $pattern = "(?m)^param $([regex]::Escape($Name)) = '[^']*'"
     if ($text -notmatch $pattern) {

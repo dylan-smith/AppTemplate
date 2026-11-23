@@ -83,6 +83,24 @@ else {
     }
     if ($taken) { throw "Already taken: $($taken -join '; '). Pick another name." }
     Write-Host '  All free'
+
+    # The app needs two App Service plans: production's, and the one its pull request previews share.
+    Write-Step "Checking the App Service quota in $Location"
+    $usagesUrl = "https://management.azure.com/subscriptions/$subscriptionId/providers/Microsoft.Web/locations/$Location/usages?api-version=2024-11-01"
+    $usages = @((az rest --method get --url $usagesUrl --output json | ConvertFrom-Json).value)
+    $row = $usages | Where-Object { $_.name.value -in 'F1', '*' } | Select-Object -First 1
+    if (-not $row) {
+        Write-Host '  Azure reported no quota for this region, so it is not checked'
+    }
+    else {
+        # The limit is shared by every plan in the region, whatever its size.
+        $used = ($usages | Measure-Object -Property currentValue -Sum).Sum
+        $free = $row.limit - $used
+        if ($free -lt 2) {
+            throw "The subscription can have $($row.limit) App Service plans in $Location and $used are in use; this app needs 2. Use another region with -Location (westus3, for example), delete an unused plan, or ask Azure for more quota (portal > Quotas > App Service)."
+        }
+        Write-Host "  $free of $($row.limit) plans are free"
+    }
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -221,19 +239,24 @@ try {
         # All four live in the main resource group: the preview identity can change everything in the preview one.
         $identities[$entry.Name] = az identity create --name $entry.Name --resource-group $app.ResourceGroup `
             --location $Location --output json | ConvertFrom-Json
-        az identity federated-credential create --name github --identity-name $entry.Name `
-            --resource-group $app.ResourceGroup --issuer 'https://token.actions.githubusercontent.com' `
-            --subject $entry.Subject --audiences 'api://AzureADTokenExchange' --output none
+        # A new identity can take a moment before it accepts a credential.
+        Invoke-WithRetry -What "The identity $($entry.Name)" {
+            az identity federated-credential create --name github --identity-name $entry.Name `
+                --resource-group $app.ResourceGroup --issuer 'https://token.actions.githubusercontent.com' `
+                --subject $entry.Subject --audiences 'api://AzureADTokenExchange' --only-show-errors --output none
+        }
     }
 
     Write-Step 'Assigning roles'
-    $roles = az role definition list --name $app.WhatIfRole --output json | ConvertFrom-Json
-    if (-not $roles) {
-        $roleFile = Join-Path ([System.IO.Path]::GetTempPath()) "new-app-whatif-role.json"
-        (Get-Content "$PSScriptRoot/whatif-role.json" -Raw).Replace('__ROLE_NAME__', $app.WhatIfRole).Replace('__SCOPE__', $groupId) |
-            Set-Content $roleFile
-        az role definition create --role-definition $roleFile --output none
-        Remove-Item $roleFile
+    # Created without looking first: Azure can go on listing a role for a while after it was deleted. Creating one
+    # that exists fails, which is fine as long as it's then really there.
+    $roleFile = Join-Path ([System.IO.Path]::GetTempPath()) "new-app-whatif-role.json"
+    (Get-Content "$PSScriptRoot/whatif-role.json" -Raw).Replace('__ROLE_NAME__', $app.WhatIfRole).Replace('__SCOPE__', $groupId) |
+        Set-Content $roleFile
+    $created = Test-Command { az role definition create --role-definition $roleFile }
+    Remove-Item $roleFile
+    if (-not $created -and -not (az role definition list --name $app.WhatIfRole --scope $groupId --output json | ConvertFrom-Json)) {
+        throw "Couldn't create the role '$($app.WhatIfRole)'. Run: az role definition create --role-definition scaffold/whatif-role.json (with its placeholders filled in) to see why."
     }
 
     $grants = @(
@@ -287,8 +310,11 @@ try {
         Remove-Item env:GOOGLE_CLIENT_ID, env:SLACK_WEBHOOK_URL, env:ALERT_INVESTIGATION_TOKEN -ErrorAction SilentlyContinue
         Set-Item "env:$($app.ServiceTokenSecret)" $serviceToken
         try {
-            az deployment group create --resource-group $app.ResourceGroup --name scaffold `
-                --template-file infra/main.bicep --parameters infra/main.bicepparam --only-show-errors --output none
+            # More tries cover Azure's passing failures, such as one resource not yet seeing another.
+            Invoke-WithRetry -What 'The deployment' -Attempts 3 -DelaySeconds 60 {
+                az deployment group create --resource-group $app.ResourceGroup --name scaffold `
+                    --template-file infra/main.bicep --parameters infra/main.bicepparam --only-show-errors --output none
+            }
         }
         finally {
             Remove-Item "env:$($app.ServiceTokenSecret)", env:AZURE_SQL_CONNECTION_STRING
@@ -309,8 +335,10 @@ try {
     # -----------------------------------------------------------------------------------------------------------
     Write-Step 'Creating the database users'
     $myIp = (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 30).Trim()
-    az sql server firewall-rule create --resource-group $app.ResourceGroup --server $app.SqlServer `
-        --name scaffold-temporary --start-ip-address $myIp --end-ip-address $myIp --output none
+    Invoke-WithRetry -What 'The SQL server' {
+        az sql server firewall-rule create --resource-group $app.ResourceGroup --server $app.SqlServer `
+            --name scaffold-temporary --start-ip-address $myIp --end-ip-address $myIp --only-show-errors --output none
+    }
     try {
         # A token for the signed-in Azure CLI account, which is the SQL server's Entra admin.
         $env:SQL_ACCESS_TOKEN = az account get-access-token --resource 'https://database.windows.net/' --query accessToken --output tsv
@@ -319,8 +347,10 @@ try {
     }
     finally {
         Remove-Item env:SQL_ACCESS_TOKEN -ErrorAction SilentlyContinue
-        az sql server firewall-rule delete --resource-group $app.ResourceGroup --server $app.SqlServer `
-            --name scaffold-temporary --output none
+        Invoke-WithRetry -What 'Removing the temporary firewall rule' {
+            az sql server firewall-rule delete --resource-group $app.ResourceGroup --server $app.SqlServer `
+                --name scaffold-temporary --only-show-errors --output none
+        }
     }
 
     # -----------------------------------------------------------------------------------------------------------
