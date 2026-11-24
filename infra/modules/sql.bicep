@@ -62,7 +62,7 @@ resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-08-01' = {
   name: databaseName
   location: location
   // Basic (5 DTU) is the cheapest tier that never pauses, so the first request after a quiet spell isn't
-  // held up by a serverless resume. PR previews stay on the serverless free offer (preview.bicep).
+  // held up by a serverless resume. PR previews are serverless (preview.bicep).
   sku: {
     name: 'Basic'
     tier: 'Basic'

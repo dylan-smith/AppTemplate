@@ -2,7 +2,7 @@ using './preview-shared.bicep'
 
 // Values for the resources shared by every preview environment in the AppTemplate-Preview resource group. CI
 // deploys these from the PR's base branch, so a change here reaches previews once it's merged.
-param location = 'westus2'
+param location = 'westus3'
 
 param appServicePlanName = 'AppTemplate-Preview-Plan'
 param appServicePlanSku = 'F1'

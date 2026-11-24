@@ -26,7 +26,7 @@ param(
     # A sentence shown under the logo and used as the repository description.
     [string]$Tagline,
     [string]$Owner = 'dylan-smith',
-    [string]$Location = 'westus2',
+    [string]$Location = 'westus3',
     # The folder the app's folder is created in.
     [string]$Root = 'E:\git',
     # Where alerts are emailed. Defaults to the account signed in to the Azure CLI.
@@ -97,7 +97,7 @@ else {
         $used = ($usages | Measure-Object -Property currentValue -Sum).Sum
         $free = $row.limit - $used
         if ($free -lt 2) {
-            throw "The subscription can have $($row.limit) App Service plans in $Location and $used are in use; this app needs 2. Use another region with -Location (westus3, for example), delete an unused plan, or ask Azure for more quota (portal > Quotas > App Service)."
+            throw "The subscription can have $($row.limit) App Service plans in $Location and $used are in use; this app needs 2. Use another region with -Location, delete an unused plan, or ask Azure for more quota (portal > Quotas > App Service)."
         }
         Write-Host "  $free of $($row.limit) plans are free"
     }
@@ -135,6 +135,9 @@ if (-not $resuming) {
     Set-BicepParam $mainParams 'budgetStartDate' (Get-Date -Day 1).AddMonths(1).ToString('yyyy-MM-01')
     foreach ($file in 'main.bicepparam', 'preview.bicepparam', 'preview-shared.bicepparam') {
         Set-BicepParam (Join-Path $appRoot "infra/$file") 'location' $Location
+    }
+    if ($Location -ne 'westus3') {
+        Write-Warning "The service health alert in infra/modules/alerts.bicep and the README still name West US 3; change them to match $Location."
     }
 
     if ($Tagline) {

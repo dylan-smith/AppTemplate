@@ -868,7 +868,7 @@ resource serviceHealth 'Microsoft.Insights/activityLogAlerts@2020-10-01' = {
           field: 'properties.impactedServices[*].ImpactedRegions[*].RegionName'
           containsAny: [
             'West US'
-            'West US 2'
+            'West US 3'
             'Global'
           ]
         }

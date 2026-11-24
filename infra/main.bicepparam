@@ -3,7 +3,7 @@ using './main.bicep'
 // Production values for the AppTemplate resource group. Deploying with these values into an empty resource
 // group provisions the whole environment; redeploying updates the existing resources in place, so renaming
 // anything here creates a new resource instead of renaming the old one.
-param location = 'westus2'
+param location = 'westus3'
 param storageLocation = 'westus'
 param appInsightsLocation = 'westus'
 
