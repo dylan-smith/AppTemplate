@@ -53,6 +53,15 @@ if ($roles) {
     }
 }
 
+# A deleted Log Analytics workspace stays recoverable for 14 days. An app recreated under the same name in that
+# time gets the old workspace back, and its first deploy then fails on the log alert rules, so purge it for good.
+if ((az group exists --name $app.ResourceGroup) -eq 'true') {
+    Write-Step 'Purging the Log Analytics workspace'
+    foreach ($workspace in @(az monitor log-analytics workspace list --resource-group $app.ResourceGroup --query '[].name' --output tsv)) {
+        az monitor log-analytics workspace delete --resource-group $app.ResourceGroup --workspace-name $workspace --force true --yes
+    }
+}
+
 foreach ($group in $app.PreviewResourceGroup, $app.ResourceGroup) {
     if ((az group exists --name $group) -eq 'true') {
         Write-Step "Deleting the resource group $group (several minutes)"
