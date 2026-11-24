@@ -88,13 +88,15 @@ else {
     Write-Step "Checking the App Service quota in $Location"
     $usagesUrl = "https://management.azure.com/subscriptions/$subscriptionId/providers/Microsoft.Web/locations/$Location/usages?api-version=2024-11-01"
     $usages = @((az rest --method get --url $usagesUrl --output json | ConvertFrom-Json).value)
-    $row = $usages | Where-Object { $_.name.value -in 'F1', '*' } | Select-Object -First 1
+    # The limit is shared by every plan in the region, whatever its size. Azure reports that total as the "*" row;
+    # where it only reports each size, the sizes are added up against the free size's limit.
+    $total = $usages | Where-Object { $_.name.value -eq '*' } | Select-Object -First 1
+    $row = $total ?? ($usages | Where-Object { $_.name.value -eq 'F1' } | Select-Object -First 1)
     if (-not $row) {
         Write-Host '  Azure reported no quota for this region, so it is not checked'
     }
     else {
-        # The limit is shared by every plan in the region, whatever its size.
-        $used = ($usages | Measure-Object -Property currentValue -Sum).Sum
+        $used = $total ? $total.currentValue : ($usages | Measure-Object -Property currentValue -Sum).Sum
         $free = $row.limit - $used
         if ($free -lt 2) {
             throw "The subscription can have $($row.limit) App Service plans in $Location and $used are in use; this app needs 2. Use another region with -Location, delete an unused plan, or ask Azure for more quota (portal > Quotas > App Service)."
